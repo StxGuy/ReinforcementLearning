@@ -9,30 +9,34 @@ cat  = [0.82;0.15;;]
 rock = [0.12;0.08;;]
 bird = [0.76;0.93;;]
 
-X = [cat rock bird]
+X = [cat rock bird]'
+n,d = size(X)
 
 # Target Embedding
 #   1st dim: sense of security
 #   2nd dim: sense of control
-comfort = [0.9;0.1;;]
+comfort   = [0.9;0.1;;]
 stability = [0.8;0.8;;]
-freedom = [0.3;1.0;;]
+freedom   = [0.3;1.0;;]
 
-Y = [comfort stability freedom]
+Y = [comfort stability freedom]'
 
 # Weight matrices
-Wq = randn(2,2)
-Wk = randn(2,2)
-Wv = randn(2,1)
+dk = 3
+dv = 2
+
+Wq = randn(d,dk)
+Wk = randn(d,dk)
+Wv = randn(d,dv)
     
 function forward(X,Y,Wq,Wk,Wv)
-    Q = Wq'*Y
-    K = Wk'*X
-    V = Wv'*X
+    Q = Y*Wq
+    K = X*Wk
+    V = X*Wv
     
-    S = (Q'*K) ./ sqrt(size(Q,1))
+    S = (Q*K') ./ sqrt(dk)
     A = softmax(S,dims=2)
-    C = A*V'
+    C = A*V
         
     return A,C
 end
