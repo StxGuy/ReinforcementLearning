@@ -1,5 +1,7 @@
 using ReinforcementLearning
 using Random
+using StatsBase
+using PyPlot
 
 # Define the FrozenLake environment
 mutable struct FrozenLakeEnv <: AbstractEnv
@@ -19,13 +21,13 @@ mutable struct FrozenLakeEnv <: AbstractEnv
     action_meanings::Vector{String}
     
     function FrozenLakeEnv(;
-        size::Tuple{Int, Int} = (4, 4),
-        slip_prob::Float64 = 0.8,  # Probability of NOT slipping
-        is_slippery::Bool = true,
-        map_name::String = "4x4",
-        max_steps::Int = 100,
-        rng::AbstractRNG = Random.GLOBAL_RNG
-    )
+                           size::Tuple{Int, Int} = (4, 4),
+                           slip_prob::Float64 = 0.8,  # Probability of NOT slipping
+                           is_slippery::Bool = true,
+                           map_name::String = "4x4",
+                           max_steps::Int = 100,
+                           rng::AbstractRNG = Random.GLOBAL_RNG
+                           )
         
         # Create the grid based on map_name
         if map_name == "4x4"
@@ -34,8 +36,8 @@ mutable struct FrozenLakeEnv <: AbstractEnv
                 "FHFH";
                 "FFFH";
                 "HFFG"
-            ]
-        elseif map_name == "8x8"
+                ]
+            elseif map_name == "8x8"
             grid_layout = [
                 "SFFFFFFF";
                 "FFFFFFFF";
@@ -45,7 +47,7 @@ mutable struct FrozenLakeEnv <: AbstractEnv
                 "FHHFFFHF";
                 "FHFFHFHF";
                 "FFFHFFFG"
-            ]
+                ]
         else
             # Custom size with random holes
             grid_layout = generate_random_map(size, rng)
@@ -65,9 +67,9 @@ mutable struct FrozenLakeEnv <: AbstractEnv
             
             if char == 'S'
                 start_pos = CartesianIndex(i, j)
-            elseif char == 'G'
+                elseif char == 'G'
                 goal_pos = CartesianIndex(i, j)
-            elseif char == 'H'
+                elseif char == 'H'
                 push!(holes, CartesianIndex(i, j))
             end
         end
@@ -88,7 +90,7 @@ mutable struct FrozenLakeEnv <: AbstractEnv
             max_steps,
             0,
             ["Left", "Down", "Right", "Up"]
-        )
+            )
         
         return env
     end
@@ -113,214 +115,344 @@ function generate_random_map(size::Tuple{Int, Int}, rng::AbstractRNG)
     end
     
     return [String(grid[i, :]) for i in 1:rows]
-end
-
-# ReinforcementLearning.jl interface implementations
-RLBase.action_space(env::FrozenLakeEnv) = Base.OneTo(4)  # 4 actions: Left, Down, Right, Up
-RLBase.state_space(env::FrozenLakeEnv) = Base.OneTo(prod(env.size))
-RLBase.state(env::FrozenLakeEnv) = pos_to_state(env, env.agent_pos)
-RLBase.is_terminated(env::FrozenLakeEnv) = env.terminated
-RLBase.reward(env::FrozenLakeEnv) = env.agent_pos == env.goal_pos ? 1.0 : 0.0
-
-function RLBase.reset!(env::FrozenLakeEnv)
-    env.agent_pos = env.start_pos
-    env.terminated = false
-    env.current_steps = 0
-    return nothing
-end
-
-# Convert 2D position to 1D state
-function pos_to_state(env::FrozenLakeEnv, pos::CartesianIndex{2})
-    rows, cols = env.size
-    return (pos[1] - 1) * cols + pos[2]
-end
-
-# Convert 1D state to 2D position
-function state_to_pos(env::FrozenLakeEnv, state::Int)
-    rows, cols = env.size
-    row = div(state - 1, cols) + 1
-    col = mod(state - 1, cols) + 1
-    return CartesianIndex(row, col)
-end
-
-# Get the intended direction vector for each action
-function get_direction(action::Int)
-    directions = [
-        CartesianIndex(0, -1),  # Left
-        CartesianIndex(1, 0),   # Down
-        CartesianIndex(0, 1),   # Right
-        CartesianIndex(-1, 0)   # Up
-    ]
-    return directions[action]
-end
-
-# Get perpendicular actions for slipping
-function get_perpendicular_actions(action::Int)
-    perpendiculars = [
-        [2, 4],  # Left -> Down, Up
-        [1, 3],  # Down -> Left, Right
-        [2, 4],  # Right -> Down, Up
-        [1, 3]   # Up -> Left, Right
-    ]
-    return perpendiculars[action]
-end
-
-# Check if position is valid (within bounds)
-function is_valid_position(env::FrozenLakeEnv, pos::CartesianIndex{2})
-    rows, cols = env.size
-    return 1 <= pos[1] <= rows && 1 <= pos[2] <= cols
-end
-
-# Main step function
-function (env::FrozenLakeEnv)(action::Int)
-    if env.terminated
-        @warn "Episode is already terminated. Call reset! first."
-        return 0.0, true
     end
     
-    env.current_steps += 1
+    # ReinforcementLearning.jl interface implementations
+    RLBase.action_space(env::FrozenLakeEnv) = Base.OneTo(4)  # 4 actions: Left, Down, Right, Up
+    RLBase.state_space(env::FrozenLakeEnv) = Base.OneTo(prod(env.size))
+    RLBase.state(env::FrozenLakeEnv) = pos_to_state(env, env.agent_pos)
+    RLBase.is_terminated(env::FrozenLakeEnv) = env.terminated
+    RLBase.reward(env::FrozenLakeEnv) = env.agent_pos == env.goal_pos ? 1.0 : 0.0
     
-    # Determine actual action (with slipping)
-    actual_action = action
-    
-    if rand(env.rng) > env.slip_prob
-        # Agent slips - choose a perpendicular direction
-        perpendicular_actions = get_perpendicular_actions(action)
-        actual_action = rand(env.rng, perpendicular_actions)
+    function RLBase.reset!(env::FrozenLakeEnv)
+        env.agent_pos = env.start_pos
+        env.terminated = false
+        env.current_steps = 0
+        return nothing
     end
     
-    # Calculate new position
-    direction = get_direction(actual_action)
-    new_pos = env.agent_pos + direction
-    
-    # Check bounds - if out of bounds, stay in place
-    if is_valid_position(env, new_pos)
-        env.agent_pos = new_pos
+    # Convert 2D position to 1D state
+    function pos_to_state(env::FrozenLakeEnv, pos::CartesianIndex{2})
+        rows, cols = env.size
+        return (pos[1] - 1) * cols + pos[2]
     end
     
-    # Check termination conditions
-    reward = 0.0
-    if env.agent_pos == env.goal_pos
-        reward = 1.0
-        env.terminated = true
-    elseif env.agent_pos in env.holes
+    # Convert 1D state to 2D position
+    function state_to_pos(env::FrozenLakeEnv, state::Int)
+        rows, cols = env.size
+        row = div(state - 1, cols) + 1
+        col = mod(state - 1, cols) + 1
+        return CartesianIndex(row, col)
+    end
+    
+    # Get the intended direction vector for each action
+    function get_direction(action::Int)
+        directions = [
+            CartesianIndex(0, -1),  # Left
+            CartesianIndex(1, 0),   # Down
+            CartesianIndex(0, 1),   # Right
+            CartesianIndex(-1, 0)   # Up
+            ]
+        return directions[action]
+    end
+    
+    # Get perpendicular actions for slipping
+    function get_perpendicular_actions(action::Int)
+        perpendiculars = [
+            [2, 4],  # Left -> Down, Up
+            [1, 3],  # Down -> Left, Right
+            [2, 4],  # Right -> Down, Up
+            [1, 3]   # Up -> Left, Right
+            ]
+        return perpendiculars[action]
+    end
+    
+    # Check if position is valid (within bounds)
+    function is_valid_position(env::FrozenLakeEnv, pos::CartesianIndex{2})
+        rows, cols = env.size
+        return 1 <= pos[1] <= rows && 1 <= pos[2] <= cols
+    end
+    
+    # Main step function
+    function (env::FrozenLakeEnv)(action::Int)
+        if env.terminated
+            @warn "Episode is already terminated. Call reset! first."
+            return 0.0, true
+        end
+        
+        env.current_steps += 1
+        
+        # Determine actual action (with slipping)
+        actual_action = action
+        
+        if rand(env.rng) > env.slip_prob
+            # Agent slips - choose a perpendicular direction
+            perpendicular_actions = get_perpendicular_actions(action)
+            actual_action = rand(env.rng, perpendicular_actions)
+        end
+        
+        # Calculate new position
+        direction = get_direction(actual_action)
+        new_pos = env.agent_pos + direction
+        
+        # Check bounds - if out of bounds, stay in place
+        if is_valid_position(env, new_pos)
+            env.agent_pos = new_pos
+        end
+        
+        # Check termination conditions
         reward = 0.0
-        env.terminated = true
-    elseif env.current_steps >= env.max_steps
-        reward = 0.0
-        env.terminated = true
+        if env.agent_pos == env.goal_pos
+            reward = 5.0
+            env.terminated = true
+            elseif env.agent_pos in env.holes
+            reward = -1.0
+            env.terminated = true
+            elseif env.current_steps >= env.max_steps
+            reward = -0.5
+            env.terminated = true
+        end
+        
+        return reward, env.terminated
     end
     
-    return reward, env.terminated
-end
-
-# Rendering functions
-function render(env::FrozenLakeEnv; mode::String = "human")
-    if mode == "human"
-        render_human(env)
-    elseif mode == "ansi"
-        return render_ansi(env)
-    else
-        error("Unsupported render mode: $mode")
+    # Rendering functions
+    function render(env::FrozenLakeEnv; mode::String = "human")
+        if mode == "human"
+            render_human(env)
+            elseif mode == "ansi"
+            return render_ansi(env)
+        else
+            error("Unsupported render mode: $mode")
+        end
     end
-end
-
-function render_human(env::FrozenLakeEnv)
-    println(render_ansi(env))
-end
-
-function render_ansi(env::FrozenLakeEnv)
-    rows, cols = env.size
-    output = ""
     
-    # Top border
-    output *= "+" * repeat("-", cols * 2 + 1) * "+\n"
+    function render_human(env::FrozenLakeEnv)
+        println(render_ansi(env))
+    end
     
-    for i in 1:rows
-        output *= "|"
-        for j in 1:cols
-            pos = CartesianIndex(i, j)
-            
-            if pos == env.agent_pos
-                if pos == env.goal_pos
-                    output *= " A"  # Agent at goal
+    function render_ansi(env::FrozenLakeEnv)
+        rows, cols = env.size
+        output = ""
+        
+        # Top border
+        output *= "+" * repeat("-", cols * 2 + 1) * "+\n"
+        
+        for i in 1:rows
+            output *= "|"
+            for j in 1:cols
+                pos = CartesianIndex(i, j)
+                
+                if pos == env.agent_pos
+                    if pos == env.goal_pos
+                        output *= " A"  # Agent at goal
+                    else
+                        output *= " A"  # Agent
+                    end
                 else
-                    output *= " A"  # Agent
-                end
-            else
-                cell = env.grid[i, j]
-                if cell == 'S'
-                    output *= " S"  # Start
-                elseif cell == 'F'
-                    output *= "  "  # Frozen (empty)
-                elseif cell == 'H'
-                    output *= " H"  # Hole
-                elseif cell == 'G'
-                    output *= " G"  # Goal
+                    cell = env.grid[i, j]
+                    if cell == 'S'
+                        output *= " S"  # Start
+                        elseif cell == 'F'
+                        output *= "  "  # Frozen (empty)
+                        elseif cell == 'H'
+                        output *= " H"  # Hole
+                        elseif cell == 'G'
+                        output *= " G"  # Goal
+                    end
                 end
             end
+            output *= " |\n"
         end
-        output *= " |\n"
+        
+        # Bottom border
+        output *= "+" * repeat("-", cols * 2 + 1) * "+"
+        
+        return output
     end
     
-    # Bottom border
-    output *= "+" * repeat("-", cols * 2 + 1) * "+"
+    # Utility function to get action name
+    function get_action_name(env::FrozenLakeEnv, action::Int)
+        return env.action_meanings[action]
+    end
     
-    return output
-end
-
-# Utility function to get action name
-function get_action_name(env::FrozenLakeEnv, action::Int)
-    return env.action_meanings[action]
-end
-
-# Example usage and testing
-function demo_frozen_lake()
-    println("Creating FrozenLake Environment...")
+    # ε-greedy policy
+    function εGreedy(Q, s, ε)
+        _, nA = size(Q)
+        return rand() < ε ? rand(1:nA) : argmax(Q[s, :])
+    end
     
-    # Create environment
-    env = FrozenLakeEnv(slip_prob = 0.8, is_slippery = true, map_name = "4x4")
-    
-    println("Environment created!")
-    println("Grid size: ", env.size)
-    println("Action space: ", action_space(env))
-    println("State space: ", state_space(env))
-    
-    # Reset and show initial state
-    reset!(env)
-    println("\nInitial state:")
-    render(env)
-    
-    println("\nRunning a random episode...")
-    reset!(env)
-    step = 0
-    total_reward = 0.0
-    
-    while !is_terminated(env) && step < 20
-        step += 1
-        action = rand(action_space(env))
-        reward, terminated = env(action)
-        total_reward += reward
+    # Improved Q-learning implementation
+    function demo_frozen_lake()
+        println("Creating FrozenLake Environment...")
         
-        println("\nStep $step:")
-        println("Action: $(get_action_name(env, action)) ($action)")
-        println("Reward: $reward")
-        println("Terminated: $terminated")
+        # Create environment with better parameters for learning
+        env = FrozenLakeEnv(
+            slip_prob = 0.9,        # Higher success probability (90% instead of 20%)
+            is_slippery = true, 
+            map_name = "4x4",
+            max_steps = 200         # More steps allowed per episode
+            )
+        
+        # Improved hyperparameters
+        γ = 0.99                   # Higher discount factor
+        α = 0.1                    # Higher learning rate
+        ε_start = 1.0              # Start with high exploration
+        ε_end = 0.01               # End with low exploration
+        ε_decay = 0.995            # Epsilon decay rate
+        
+        S = state_space(env)
+        A = action_space(env)
+        nS = length(S)
+        nA = length(A)
+        
+        println("Environment created!")
+        println("Grid size: ", env.size)
+        println("Action space: ", A)
+        println("State space: ", S)
+        println("Slip probability: ", env.slip_prob)
+        
+        # Initialize Q-table with small random values instead of zeros
+        Q = randn(nS, nA) * 0.01
+        
+        # Reset and show initial state
+        reset!(env)
+        println("\nInitial state:")
         render(env)
         
-        if terminated
-            if reward > 0
-                println("🎉 Reached the goal!")
-            else
-                println("💀 Fell into a hole or ran out of time!")
+        println("\nStarting Q-Learning...")
+        
+        # Track performance
+        episode_rewards = Float64[]
+        success_rate_window = 100
+        ε = ε_start
+        
+        y1 = []
+        y2 = []
+        
+        for episode in 1:1000000
+            reset!(env)
+            s = state(env)
+            
+            episode_reward = 0.0
+            step_count = 0
+            
+            while !is_terminated(env) && step_count < env.max_steps
+                # Choose action using ε-greedy
+                a = εGreedy(Q, s, ε)
+                
+                # Take action and observe result
+                r, terminated = env(a)
+                s′ = state(env)
+                
+                # Q-learning update: Q(s,a) ← Q(s,a) + α[r + γ max_a Q(s',a) - Q(s,a)]
+                if terminated
+                    # Terminal state: no future rewards
+                    Q[s, a] += α * (r - Q[s, a])
+                else
+                    # Use max over next state actions (Q-learning)
+                    Q[s, a] += α * (r + γ * maximum(Q[s′, :]) - Q[s, a])
+                end
+                
+                s = s′
+                episode_reward += r
+                step_count += 1
             end
-            break
+                        
+            push!(episode_rewards, episode_reward)
+            
+            # Decay epsilon
+            ε = max(ε_end, ε * ε_decay)
+            
+            # Print progress
+            if episode % 100000 == 0
+                push!(y1,step_count)
+                push!(y2,episode_reward)
+                
+                recent_rewards = episode_rewards[max(1, end-success_rate_window+1):end]
+                success_rate = sum(recent_rewards) / length(recent_rewards)
+                avg_reward = mean(recent_rewards)
+                
+                println("Episode $episode:")
+                println("  Success rate (last $success_rate_window episodes): $(round(success_rate*100, digits=1))%")
+                println("  Average reward: $(round(avg_reward, digits=3))")
+                println("  Epsilon: $(round(ε, digits=3))")
+                println("  Steps taken: $step_count")
+            end
         end
+        
+        plot(y1)
+        show()
+        plot(y2)
+        show()
+        
+        # Test the learned policy
+        println("\n" * "="^50)
+        println("Testing learned policy...")
+        
+        test_episodes = 100
+        test_rewards = Float64[]
+        
+        for test_ep in 1:test_episodes
+            reset!(env)
+            s = state(env)
+            episode_reward = 0.0
+            step_count = 0
+            
+            while !is_terminated(env) && step_count < env.max_steps
+                # Use greedy policy (no exploration)
+                a = argmax(Q[s, :])
+                r, _ = env(a)
+                s = state(env)
+                episode_reward += r
+                step_count += 1
+            end
+            
+            push!(test_rewards, episode_reward)
+        end
+        
+        final_success_rate = sum(test_rewards) / length(test_rewards)
+        println("Final success rate over $test_episodes test episodes: $(round(final_success_rate*100, digits=1))%")
+        
+        # Show a sample successful episode
+        println("\nSample episode with learned policy:")
+        reset!(env)
+        s = state(env)
+        step_count = 0
+        
+        render(env)
+        println()
+        
+        while !is_terminated(env) && step_count < 20  # Limit steps for display
+            a = argmax(Q[s, :])
+            action_name = get_action_name(env, a)
+            println("Action: $action_name")
+            
+            r, _ = env(a)
+            s = state(env)
+            step_count += 1
+            
+            render(env)
+            println("Reward: $r")
+            println()
+            
+            if r > 0
+                println("🎉 Goal reached!")
+                break
+                elseif env.agent_pos in env.holes
+                println("💀 Fell into hole!")
+                break
+            end
+        end
+        
+        return Q, episode_rewards
     end
     
-    println("\nTotal reward: $total_reward")
-    return env
-end
-
-# Run the demo
-demo_frozen_lake()
+    # Run the improved demo
+    Q, rewards = demo_frozen_lake();
+    n,m = size(Q)
+    for nn in 1:n
+        println(round.(Q[nn,:],digits=2))
+    end
+    
+ 
